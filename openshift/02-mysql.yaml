@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
         - name: mysql
-          image: registry.access.redhat.com/ubi9/mysql-80:latest
+          image: image-registry.openshift-image-registry.svc:5000/openshift/mysql:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3306
