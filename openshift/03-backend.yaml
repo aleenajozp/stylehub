@@ -1,0 +1,110 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/aleenajozp/stylehub.git
+      ref: main
+    contextDir: backend
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: stylehub-backend:latest
+  triggers:
+    - type: ConfigChange
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stylehub-backend
+  template:
+    metadata:
+      labels:
+        app: stylehub-backend
+    spec:
+      containers:
+        - name: backend
+          image: stylehub-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - secretRef:
+                name: stylehub-secrets
+            - configMapRef:
+                name: stylehub-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+spec:
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+  selector:
+    app: stylehub-backend
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+spec:
+  to:
+    kind: Service
+    name: stylehub-backend
+  port:
+    targetPort: 8000
+  tls:
+    termination: edge

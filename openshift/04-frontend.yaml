@@ -1,0 +1,105 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/aleenajozp/stylehub.git
+      ref: main
+    contextDir: frontend
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: stylehub-frontend:latest
+  triggers:
+    - type: ConfigChange
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stylehub-frontend
+  template:
+    metadata:
+      labels:
+        app: stylehub-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: stylehub-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: stylehub-frontend
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+spec:
+  to:
+    kind: Service
+    name: stylehub-frontend
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge

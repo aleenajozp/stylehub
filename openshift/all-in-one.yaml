@@ -1,0 +1,338 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: stylehub-secrets
+  labels:
+    app: stylehub
+type: Opaque
+stringData:
+  MYSQL_ROOT_PASSWORD: "stylehub_root_secure_password"
+  MYSQL_DATABASE: "stylehub"
+  MYSQL_USER: "stylehub_user"
+  MYSQL_PASSWORD: "stylehub_password_123"
+  DB_PASSWORD: "stylehub_password_123"
+  DJANGO_SECRET_KEY: "django-insecure-production-secret-stylehub-change-me-key"
+  STYLEHUB_ADMIN_PASSWORD: "AdminPassword123!"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stylehub-config
+  labels:
+    app: stylehub
+data:
+  DB_HOST: "stylehub-mysql"
+  DB_PORT: "3306"
+  DB_NAME: "stylehub"
+  DB_USER: "stylehub_user"
+  DJANGO_DEBUG: "False"
+  DJANGO_ALLOWED_HOSTS: "*"
+  CORS_ALLOW_ALL_ORIGINS: "True"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: stylehub-mysql-pvc
+  labels:
+    app: stylehub
+    component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stylehub-mysql
+  labels:
+    app: stylehub
+    component: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: stylehub-mysql
+  template:
+    metadata:
+      labels:
+        app: stylehub-mysql
+    spec:
+      containers:
+        - name: mysql
+          image: registry.access.redhat.com/ubi9/mysql-80:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stylehub-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: stylehub-secrets
+                  key: MYSQL_DATABASE
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stylehub-secrets
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stylehub-secrets
+                  key: MYSQL_PASSWORD
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: stylehub-mysql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stylehub-mysql
+  labels:
+    app: stylehub
+    component: database
+spec:
+  ports:
+    - port: 3306
+      targetPort: 3306
+      name: mysql
+  selector:
+    app: stylehub-mysql
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/aleenajozp/stylehub.git
+      ref: main
+    contextDir: backend
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: stylehub-backend:latest
+  triggers:
+    - type: ConfigChange
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stylehub-backend
+  template:
+    metadata:
+      labels:
+        app: stylehub-backend
+    spec:
+      containers:
+        - name: backend
+          image: stylehub-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - secretRef:
+                name: stylehub-secrets
+            - configMapRef:
+                name: stylehub-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+spec:
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+  selector:
+    app: stylehub-backend
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: stylehub-backend
+  labels:
+    app: stylehub
+    component: backend
+spec:
+  to:
+    kind: Service
+    name: stylehub-backend
+  port:
+    targetPort: 8000
+  tls:
+    termination: edge
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/aleenajozp/stylehub.git
+      ref: main
+    contextDir: frontend
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: stylehub-frontend:latest
+  triggers:
+    - type: ConfigChange
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stylehub-frontend
+  template:
+    metadata:
+      labels:
+        app: stylehub-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: stylehub-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: stylehub-frontend
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: stylehub-frontend
+  labels:
+    app: stylehub
+    component: frontend
+spec:
+  to:
+    kind: Service
+    name: stylehub-frontend
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
