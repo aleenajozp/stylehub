@@ -38,6 +38,8 @@ metadata:
   labels:
     app: stylehub
     component: frontend
+  annotations:
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"stylehub-frontend:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"frontend\")].image"}]'
 spec:
   replicas: 1
   selector:
